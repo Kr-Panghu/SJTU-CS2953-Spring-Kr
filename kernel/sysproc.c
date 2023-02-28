@@ -91,3 +91,14 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// pid: syscall "name" -> "return val"
+uint64 
+sys_trace(void)
+{
+  int n;
+  argint(0, &n);
+  if(n < 0) return -1;
+  myproc() -> mask = n; // myproc() 返回一个 proc* 类型
+  return 0;
+}

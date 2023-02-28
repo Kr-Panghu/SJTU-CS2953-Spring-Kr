@@ -40,26 +40,26 @@ main(int argc, char *argv[])
 
   if(fork() == 0) { // parent -> child
     if(read(fat_p[0], &c, 1) != 1) {
-        printf("Err: pipe read failed\n");
+        printf("Err: pipe read failed!\n");
         exit(1);
     }
     printf("%d: received ping\n", getpid());
     if(write(kid_p[1], &msg, 1) != 1) {
-        printf("Err: pipe write failed\n");
+        printf("Err: pipe write failed!\n");
         exit(1);
     }
   }
   else { // child -> parent
     if(write(fat_p[1], &msg, 1) != 1) {
-        printf("Err: pipe write failed\n");
+        printf("Err: pipe write failed!\n");
         exit(1);
     }
     if(read(kid_p[0], &c, 1) != 1) {
-        printf("Err: pipe read failed\n");
+        printf("Err: pipe read failed!\n");
         exit(1);
     }
     printf("%d: received pong\n", getpid());
   }
-  
+
   exit(0);
 }
