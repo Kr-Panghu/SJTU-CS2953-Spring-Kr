@@ -107,3 +107,5 @@ struct proc {
 
   int mask;               // Tag for tracing
 };
+
+uint64 nproc();

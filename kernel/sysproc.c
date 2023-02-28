@@ -5,6 +5,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sysinfo.h"
 
 uint64
 sys_exit(void)
@@ -100,5 +101,18 @@ sys_trace(void)
   argint(0, &n);
   if(n < 0) return -1;
   myproc() -> mask = n; // myproc() 返回一个 proc* 类型
+  return 0;
+}
+
+uint64
+sys_sysinfo(void)
+{
+  uint64 ip; 
+  struct sysinfo si;
+  si.freemem = freemem();
+  si.nproc = nproc();
+  argaddr(0, &ip);
+  if(copyout(myproc()->pagetable, ip, (char *)&si, sizeof(si)) < 0)
+      return -1;
   return 0;
 }
