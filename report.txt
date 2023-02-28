@@ -1,1 +1,42 @@
-aaaaa
+The journal of my mind:
+--------------------
+Task1: Program sleep.c
+It's easy to complish the task.
+--------------------
+Task2: Program pingpong.c
+The parent process sends 1 byte to the child process through the pipe,
+and the child process replies 1 byte to the parent process after receiving it.
+Since the pipe flows in one direction, <this is important>
+pipe() is called twice to create two pipes, one for each direction.
+Use fork() to create a child process that reads () from pipe1 and then writes () to pipe2 and vice versa for the parent.
+--------------------
+Task3: Syscall <trace>
+Only need to add a <mask> to the struct <proc>.
+And when we trace the program, we check the <mask> and output the syscall information.
+
+But at first I forgot to pass the trace mask from the parent to the child process.
+--------------------
+Task4: Syscall <sysinfo>
+The implementation of the sys_sysinfo function needs to first obtain the required information,
+then obtain the address parameter passed to the system call function,
+and copy the obtained information to this address. 
+Since it involves the address translation of kernel and user mode,
+the copyout function needs to be used as:
+  if(copyout(myproc()->pagetable, ip, (char *)&si, sizeof(si)) < 0)
+      return -1;
+
+<freemem> function: we need to understand "kalloc.c".
+This file is dedicated to physical memory management.
+It uses a linked list to manage free space,
+and each list node represents a page, so as we go through the list,
+the number of nodes times the size of the memory page is free space.
+
+<nproc> function:
+"proc.c" is a file that manages processes.
+xv6 uses an array to maintain all processes, whether running, waiting, or unallocated.
+So the nproc function simply iterates through the array to count how many unallocated processes there are.
+
+But don't forget to add function declaration in the file "def.h", or we will see:
+" error: implicit declaration of function 'freemem' "
+--------------------
+Author: Kangrui Cen
