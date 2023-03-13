@@ -136,17 +136,32 @@ printfinit(void)
 
 // Your backtrace should use the frame pointers to walk up the stack 
 // and print the saved return address in each stack frame.
-void 
-backtrace(void)
-{
-  printf("backtrace begins:\n");
-  uint64 fp = r_fp();            // the current frame pointer
-  uint64 p = PGROUNDDOWN(fp);    // frame pointer 指向的页面
-  // return address:    fp - 8
-  // to previous frame: fp - 16
-  while(fp != p) {
-    printf("%p\n", *(uint64 *)(fp - 8));
-    fp = *(uint64 *)(fp - 16);
-    p = PGROUNDDOWN(fp);
-  }
-}
+// void 
+// backtrace(void)
+// {
+//   printf("backtrace begins:\n");
+//   uint64 fp = r_fp();            // the current frame pointer
+//   uint64 p = PGROUNDDOWN(fp);    // frame pointer 指向的页面
+//   // return address:    fp - 8
+//   // to previous frame: fp - 16
+//   while(fp != p) {
+//     printf("%p\n", *(uint64 *)(fp - 8));
+//     fp = *(uint64 *)(fp - 16);
+//     p = PGROUNDDOWN(fp);
+//   }
+// }
+
+// void
+// backtrace(void)
+// {
+//   printf("backtrace:\n");
+//   uint64 fp = r_fp();
+//   uint64 top = PGROUNDUP(fp);
+
+//   while (fp < top) {
+//     uint64 * ra = (uint64 *) (fp - 8);
+//     uint64 * last_fp = (uint64 *) (fp - 16);
+//     printf("%p\n", *ra);
+//     fp = *last_fp;
+//   }
+// }
