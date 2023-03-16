@@ -28,7 +28,7 @@ sys_fork(void)
 }
 
 uint64
-sys_wait(void)
+sys_wait(void) //wait for a child process to exit
 {
   uint64 p;
   argaddr(0, &p);
@@ -36,7 +36,7 @@ sys_wait(void)
 }
 
 uint64
-sys_sbrk(void)
+sys_sbrk(void) //grow process's memory by n bytes
 {
   uint64 addr;
   int n;
@@ -49,7 +49,7 @@ sys_sbrk(void)
 }
 
 uint64
-sys_sleep(void)
+sys_sleep(void) //sleep for n clock ticks
 {
   int n;
   uint ticks0;
@@ -72,7 +72,7 @@ sys_sleep(void)
 }
 
 uint64
-sys_kill(void)
+sys_kill(void) //terminate process [pid]
 {
   int pid;
 
@@ -96,6 +96,12 @@ sys_uptime(void)
 uint64
 sys_sigalarm(void)
 {
+  int interval;
+  uint64 handler;
+  argint(0, &interval);
+  argaddr(1, &handler);
+  myproc() -> interval = interval;
+  myproc() -> handler = (void (*)()) handler;
   return 0;
 }
 
