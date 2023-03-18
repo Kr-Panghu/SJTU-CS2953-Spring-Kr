@@ -102,11 +102,19 @@ sys_sigalarm(void)
   argaddr(1, &handler);
   myproc() -> interval = interval;
   myproc() -> handler = (void (*)()) handler;
+  myproc() -> is_in_handler = 0;
   return 0;
 }
 
 uint64
 sys_sigreturn(void)
 {
+  struct proc *proc_ptr = myproc();
+  proc_ptr -> ticks = 0;
+  proc_ptr -> trapframe -> epc = proc_ptr -> user_trapframe.epc;
+  memmove((uint64 *) (proc_ptr->trapframe) + 5, (uint64 *) &(proc_ptr->user_trapframe) +1, 248); // dst, src, len
+  proc_ptr -> is_in_handler = 0;
+  yield();
+  usertrapret();
   return 0;
 }

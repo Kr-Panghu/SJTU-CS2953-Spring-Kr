@@ -1,0 +1,87 @@
+Hello, here is my report:
+--------------------
+Task1: Backtrace
+Add a "backtrace" function in kernel/printf.c
+fp = r_fp(): get the current frame pointer
+p = PGROUNDDOWN(fp): get the page to which the frame pointer points
+
+According to the stack structrue:
+  return address: fp - 8
+  to previous frame: fp - 16
+
+So when we apply backtrace, we only need to add code:
+  while(fp != p) {
+    printf("%p\n", *(uint64 *)(fp - 8));
+    fp = *(uint64 *)(fp - 16);
+    p = PGROUNDDOWN(fp);
+  }
+to walk up the stack.
+
+--------------------
+Task2: Alarm
+Except "kernel" ones in trapframe, we need to save all other variables in user_trapframe.
+So I add a new struct "usertrapframe".
+The 6-th to 36-th variable in trapframe is the same as
+the 2-th to 32-th variable in usertrapframe,
+so "memmove((uint64 *) &(p->user_trapframe) +1, (uint64 *) (p->trapframe) + 5, 248)",
+for the first variable in usertrapframe, i.e., epc, do "p -> user_trapframe.epc = p -> trapframe -> epc" specially.
+
+Also need a "int is_in_handler" to prevent re-entrant into handler.
+
+To do this, add code in kernel/trap.c/usertrap:
+  if(which_dev == 2){
+    p -> ticks += 1;
+    if(p -> ticks >= p -> interval && p -> interval > 0 && p -> is_in_handler == 0){
+      p -> is_in_handler = 1;
+      p -> user_trapframe.epc = p -> trapframe -> epc;
+      memmove((uint64 *) &(p->user_trapframe) +1, (uint64 *) (p->trapframe) + 5, 248);
+      p -> trapframe -> epc = (uint64) p -> handler;
+    }
+    else yield();
+  }
+
+In kernel/sysproc.c, add something like
+  uint64 sys_sigreturn(void) {
+    struct proc *proc_ptr = myproc();
+    proc_ptr -> ticks = 0;
+    proc_ptr -> trapframe -> epc = proc_ptr -> user_trapframe.epc;
+    memmove((uint64 *) (proc_ptr->trapframe) + 5, (uint64 *) &(proc_ptr->user_trapframe) +1, 248); // dst, src, len
+    proc_ptr -> is_in_handler = 0;
+    yield();
+    usertrapret();
+    return 0;
+  }
+to get back the register contents they held at the time of the interrupt.
+
+--------------------
+The problem I meet when adding Alarm function:
+
+At first I wanted to add a "struct usertrapframe * user_trapframe",
+a pointer in the "struct proc".
+But I found it might encounter problems, becauses it would affect other processes(fail in "usertest").
+I realized the problem was that I didn't free the "userframepointer" pointer correctly.
+If I want to do this, I have to do something like:
+    static void
+    freeproc(struct proc *p)
+    {
+      if(p->trapframe)
+        kfree((void*)p->trapframe);
+      p->trapframe = 0;
+      if(p->pagetable)
+        proc_freepagetable(p->pagetable, p->sz);
+      p->pagetable = 0;
+      p->sz = 0;
+      p->pid = 0;
+      p->parent = 0;
+      p->name[0] = 0;
+      p->chan = 0;
+      p->killed = 0;
+      p->xstate = 0;
+      p->state = UNUSED;
+    }
+which is extremely complicated.
+So I change the member "struct usertrapframe * user_trapframe" to "struct usertrapframe user_trapframe",
+there is no need to use pointer. Thus, the above problem could be avoided.
+
+--------------------
+Author: Kr.Cen, 康瑞 岑

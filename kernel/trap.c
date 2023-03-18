@@ -79,7 +79,10 @@ usertrap(void)
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2){
     p -> ticks += 1;
-    if(p -> ticks >= p -> interval){
+    if(p -> ticks >= p -> interval && p -> interval > 0 && p -> is_in_handler == 0){
+      p -> is_in_handler = 1;
+      p -> user_trapframe.epc = p -> trapframe -> epc;
+      memmove((uint64 *) &(p->user_trapframe) +1, (uint64 *) (p->trapframe) + 5, 248);
       p -> trapframe -> epc = (uint64) p -> handler;
     }
     else yield();
