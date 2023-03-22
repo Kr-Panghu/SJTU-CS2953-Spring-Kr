@@ -1,1 +1,28 @@
-1111111111
+1. Which registers contain arguments to functions? For example, which register holds 13 in
+main's call to printf ?
+
+Ans: reg a0, a1, ..., a7 contain arguments. a2 holds 13. (li a2,13)
+
+2. Where is the call to function f in the assembly code for main? Where is the call to g ? (Hint:
+the compiler may inline functions.)
+
+Ans: Function f and g is not called. 
+In function main, we can see assembly (li a1,12), 
+which means it has been calculated directly by the compiler 
+in the compile optimization phase.
+
+3. At what address is the function printf located?
+
+Ans: In address 0x640.
+
+4. What value is in the register ra just after the jalr to printf inmain?
+
+Ans: The ra register's value is 0x38 which is the next instruction after returnning from printf.
+
+5. In the following code, what is going to be printed after y= ? (note: the answer is not a specific
+value.) Why does this happen?
+> printf("x=%d y=%d", 3);
+
+Ans: It'll print the value in the a2 register.
+The 2-th argument "3" is passed to a1, but 3-th argument is missing,
+so the result will depend on whatever there is before the call.
