@@ -1,0 +1,22 @@
+Hello, here is my answer
+---------------------
+Q: Why are there missing keys with 2 threads, but not with 1 thread?
+Identify a sequence of events with 2 threads that can lead to a key being missing.
+
+Ans: 
+
+Look into the code
+----
+  int i = key % NBUCKET;
+  for (e = table[i]; e != 0; e = e->next) {...}
+----
+There are 5 tables.
+
+When two threads call function "insert" at the same time and insert into the same table
+Like:
+  Thread 1: insert(key1, value1, &table[1], table[1]);
+  Thread 2: insert(key2, value2, &table[1], table[1]);
+Then:
+  Thread 1: *p = e;
+  Thread 2: *p = e;
+Which means the <struct entry *next> of 2 entry is set to the same entry! So the key is missing.
