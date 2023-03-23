@@ -1,2 +1,71 @@
 Hello, this is my report!
---------------------
+
+----------Part I: uthread----------
+
+First, add a struct context in uthread.c
+    struct context {
+    uint64 ra;  // 0 return address
+    uint64 sp;  // 8 stack pointer
+    uint64 s0;  // 16
+    uint64 s1;  // 24
+    uint64 s2;  // 32
+    uint64 s3;  // 40
+    uint64 s4;  // 48
+    uint64 s5;  // 56
+    uint64 s6;  // 64
+    uint64 s7;  // 72
+    uint64 s8;  // 80
+    uint64 s9;  // 88
+    uint64 s10; // 96
+    uint64 s11; // 104
+    };
+and add it into struct thread;
+
+Notice that the parameter of function 
+"extern void thread_switch(uint64, uint64)" is uint64,
+We need to pass the first address of the context to the function,
+like:
+    thread_switch((uint64)&(t->context), (uint64)&(current_thread->context));
+in thread_switch.
+
+Then add code
+    t->context.sp = (uint64) &(t->stack)+STACK_SIZE;
+    t->context.ra = (uint64) func;
+in thread_create.
+
+----------Part II: pthread-----------
+
+It's trivial to do this task, we simply need to create NBUCKET locks for each BUCKET,
+when fetching the corresponding BUCKET: lock,
+when it's done: unlock.
+Core code is:
+    pthread_mutex_lock(&lock[i]);
+    insert(key, value, &table[i], table[i]);
+    pthread_mutex_unlock(&lock[i]);
+in function <put>
+
+----------Part III: barrier-----------
+
+Core idea: 
+The <barrier> function locked mutex when entered.
+And increment round(the number of rounds performed).
+if round < nthread, wait other threads and release mutex.
+if round = nthread, reset round, and wake up every thread sleeping on cond.
+
+Core code:
+    static void barrier(){
+        pthread_mutex_lock(&bstate.barrier_mutex);
+        ++round;
+        if(round < nthread) {
+            pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
+        }  // go to sleep on cond, wait other threads, and release mutex
+        else {
+            round = 0; // reset round
+            ++bstate.round;
+            pthread_cond_broadcast(&bstate.barrier_cond); // wake up every thread sleeping on cond
+        }
+        pthread_mutex_unlock(&bstate.barrier_mutex);
+    }
+
+-------------------------------------
+Author: Kr.Cen  康瑞 岑
