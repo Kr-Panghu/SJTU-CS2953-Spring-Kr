@@ -89,6 +89,7 @@ bget(uint dev, uint blockno)
 }
 
 // Return a locked buf with the contents of the indicated block.
+// bread: Get a buffer for a particular disk block.
 struct buf*
 bread(uint dev, uint blockno)
 {
