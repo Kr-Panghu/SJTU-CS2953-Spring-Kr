@@ -1,10 +1,159 @@
 Author: Kr.Cen
 Date: 2023.4.13
-Hello, here is my report for <lab4>.
+Hello, here is my report for <xv6 Lab4: Lock>.
 --------------------------------------------
 Part1: Memory Allocator
+This task is easier than Part2, just simply implement per-CPU 
+freelists and add a tricky implementation <steal_freelist>.
+
+1. Change variable "kmem" to "kmem[NCPU]".
+2. Add a new function <kfreesingle> to free the memory location on a specific CPU freelist.
+3. For <kinit>, use a cycle to initlock for every lock in kmem[NCPU].
+4. <freerange> function is only used in the function <kinit>, we use it to allocate the memory space to each CPU's freelist, so do it like:
+    ~~~
+    char *p;
+    int ind = 0;
+    p = (char*)PGROUNDUP((uint64)pa_start);
+
+    for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE){
+        kfreesingle(p, ind, 0);
+        ind = (ind + 1) % NCPU;
+    }
+    ~~~
+5. For <kfree>, we do "kfreesingle(pa, cpuid(), 1);", 
+   Hint: It's only safe to call cpuid() and use its result when interrupts are turned off.
+6. ** The most important one: function <steal_freelist> **
+   implement it like,
+   ~~~
+    void *
+    steal_freelist(void) {
+    struct run *r = 0;
+    push_off();
+    int id_now = cpuid();
+    int id_next = id_now;
+    release(&kmem[id_now].lock);
+    while (1) {
+        id_next = (id_next + 1) % NCPU;
+        if (id_next == id_now) // The free list of any CPU is empty
+        break;
+        acquire(&kmem[id_next].lock);
+        r = kmem[id_next].freelist;
+        if(r) {
+        kmem[id_next].freelist = r->next;
+        release(&kmem[id_next].lock);
+        break;
+        }
+        release(&kmem[id_next].lock);
+    }
+    acquire(&kmem[id_now].lock);
+    pop_off();
+    return (void*)r;
+    }
+   ~~~
+7. After add the trait <steal_freelist>, do it in kalloc
+   ~~~
+    r = kmem[id].freelist;
+    if(r)
+        kmem[id].freelist = r->next;
+    else
+        r = steal_freelist();
+   ~~~
 
 --------------------------------------------
-Part2: Block Buffer
+Part2: Buffer Cache
+
+The problem I met at first: I just simply do it like what I do in Part1,
+that is, change variable "bcache" to "bchache[BUCKET]". However, this implementation failed in "make grade".
+
+The explanation given by the tutorial:
+    ~~~
+    Reducing contention in the block cache is more tricky than for kalloc, because bcache buffers are truly
+    shared among processes (and thus CPUs).
+    ~~~
+So next step, I tried to implement hash bucket, use blockno to be its key.
+
+1. Use a prime number BUCKET = 13 to be the constant
+2. in variable bcache, change the members like,
+    ~~~
+    struct{
+    struct spinlock lock[ BUCKET ];
+    struct buf buf[ NBUF ];
+    struct buf head[ BUCKET ];
+    }
+    ~~~
+    That means, we use 13 head buffer lists, each possess its own spinlock.
+3. For function <binit>, we do the same initialization operation to bchache.head[0],
+   but we need to additionally initlock for every bcache.lock and set bcache.head[i].prev and bcache.head[i].next point to bcache.head itself.
+4. ** The most important one: function <bget> **
+
+See the code below.
+~~~
+static struct buf*
+bget(uint dev, uint blockno)
+{
+  struct buf *b;
+
+  uint _h = blockno % BUCKET;   // hash blockno to be key
+  uint h = _h;                  // store the original key
+
+  acquire(&bcache.lock[_h]);    // acquire the corresponding spinlock
+
+  // 1. At first, we look for the buffer in the corresponding bucket.
+  for(b = bcache.head[h].next; b != &bcache.head[h]; b = b->next){
+    if(b->dev == dev && b->blockno == blockno){
+      b->refcnt++;
+      release(&bcache.lock[h]);
+      acquiresleep(&b->lock);
+      return b;
+    }
+  }
+
+  // 2. Then, we tried to find a spared block in the current BUCKET.
+  for(b = bcache.head[h].prev; b != &bcache.head[h]; b = b->prev){
+    if(b->refcnt == 0) {
+      b->dev = dev;
+      b->blockno = blockno;
+      b->valid = 0;
+      b->refcnt = 1;
+      release(&bcache.lock[h]);
+      acquiresleep(&b->lock);
+      return b;
+    }
+  }
+
+  // 3. While holding lock to original hash bucket, steal a block from other buckets
+  // Hint: the acquire and release of the spinlock here is easy to make mistake.
+  while(1){
+    h = (h + 1) % BUCKET;
+    if(h == _h) break;
+
+    acquire(&bcache.lock[h]);
+
+    for(b = bcache.head[h].prev; b != &bcache.head[h]; b = b->prev){
+      if(b->refcnt == 0) {
+        b->dev = dev;
+        b->blockno = blockno;
+        b->valid = 0;
+        b->refcnt = 1;
+        b->next->prev = b->prev;
+        b->prev->next = b->next;
+        release(&bcache.lock[h]);
+
+        b->next = bcache.head[_h].next;
+        b->prev = &bcache.head[_h];
+        b->next->prev = b;
+        b->prev->next = b;
+        release(&bcache.lock[_h]);
+
+        acquiresleep(&b->lock);
+        return b;
+      }
+    }
+
+    release(&bcache.lock[h]);
+  }
+  panic("bget: no buffers");
+}
+~~~
 
 --------------------------------------------
