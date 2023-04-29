@@ -438,55 +438,16 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   }
 }
 
-// void vmprintcore(pagetable_t page, int level)
-// {
-//   for(int i = 0; i < 512; ++i)
-//   {
-//     pte_t pte = page[i];
-//     if ((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0)
-//     {
-//       uint64 child = PTE2PA(pte);
-//       for(int j = 0; j <= level; ++j)
-//       {
-//         if(j != level)
-//           printf(" ..");
-//         else
-//           printf(" ..");
-//       }
-//       printf("%d: pte %p pa %p\n", i, pte, child);
-//       vmprintcore((pagetable_t)child, level + 1);
-//     }
-//     else if(pte & PTE_V)
-//     {
-//       uint64 child = PTE2PA(pte);
-//       for(int j = 0; j <= level; ++j)
-//       {
-//         if(j != level)
-//           printf(" ..");
-//         else
-//           printf(" ..");
-//       }
-//       printf("%d: pte %p pa %p\n", i, pte, child);
-//     }
-//   }
-// }
-
-// void vmprint(pagetable_t pagetable)
-// {
-//   printf("page table %p\n", pagetable);
-//   vmprintcore(pagetable, 0);
-// }
-
-void vmprintcore(pagetable_t pagetable, int depth);
+void vmprint_step(pagetable_t pagetable, int depth);
 
 void
 vmprint(pagetable_t pagetable) {
   printf("page table %p\n", pagetable);
-  vmprintcore(pagetable, 0);
+  vmprint_step(pagetable, 0);
 }
 
 void
-vmprintcore(pagetable_t pagetable, int depth) {
+vmprint_step(pagetable_t pagetable, int depth) {
   for (int i = 0; i < 512; i++) {
     pte_t pte = pagetable[i];
     if ((pte & PTE_V) == 0) {
@@ -494,16 +455,13 @@ vmprintcore(pagetable_t pagetable, int depth) {
       continue;
     }
     for (int d = 0; d <= depth; d++) {
-      // if (d != 0) {
-      //   printf(" ");
-      // }
       printf(" ..");
     }
     uint64 pa = PTE2PA(pte);
     printf("%d: pte %p pa %p\n", i, pte, pa);
     if (depth < 2) {
       // non-leaf node
-      vmprintcore((pagetable_t) pa, depth+1);
+      vmprint_step((pagetable_t) pa, depth+1);
     }
   }
 }

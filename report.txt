@@ -1,15 +1,115 @@
 Lab Page Table Reports
 Author: Kr.Cen  康瑞 岑
-------------------------------
+------------------------------------------
+Some important prepares: (code reading)
 
+=== User memory layout ===
+// Address zero first:
+//   text
+//   original data and bss
+//   fixed-size stack
+//   expandable heap
+//   ...
+//   USYSCALL (shared with kernel)
+//   TRAPFRAME (p->trapframe, used by the trampoline)
+//   TRAMPOLINE (the same page as in the kernel)
 
+=== RISC-V Privileged Architectures ===
+63-54 (10 bits) Reserved
+53-28 (26 bits) PPN[2]
+27-19 (9 bits) PPN[1]
+18-10 (9 bits) PPN[0]
+9-8 (2 bits) RSW
+7,6,5,4,3,2,1,0 => D,A,G,U,X,W,R,V
 
-------------------------------
+=== function 'mappages' ===
+Create PTEs for virtual addresses starting at va that refer to physical addresses starting at pa.
 
+=== function 'uvmunmap' ===
+Remove npages of mappings starting from va. va must be page-aligned. The mappings must exist.
 
+=== function 'uvmfree' ===
+Free user memory pages, then free page-table pages.
 
-------------------------------
+------------------------------------------
+Part1: Speed up system calls
+1. Add a member 'usyscall' in struct proc to support shared with the kernel.
+2. Allocate for 'usyscall' in proc.c 'allocproc' function.
+3. Perform the mapping in the function 'proc_pagetable' as: 
+  // map the usyscall just below trapframe, for read-only page mapping
+  if(mappages(pagetable, USYSCALL, PGSIZE,
+              (uint64)(p->usyscall), PTE_R | PTE_U) < 0){
+    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+    uvmunmap(pagetable, TRAPFRAME, 1, 0);
+    uvmfree(pagetable, 0);
+    return 0;
+  }
+4. Free the page in function 'freeproc', as:
+  Add the sentence 'uvmunmap(pagetable, USYSCALL, 1, 0)' before return;
 
+------------------------------------------
+Part2: Print a page table
+It's easy to add this implement, just print the page information by depth will work.
+But remember to use %p to print out full 64-bit hex PTEs and addresses as shown in the example.
 
+Codes:
+  void
+  vmprint_step(pagetable_t pagetable, int depth) {
+    for (int i = 0; i < 512; i++) {
+      pte_t pte = pagetable[i];
+      if ((pte & PTE_V) == 0) {
+        // invalid pte
+        continue;
+      }
+      for (int d = 0; d <= depth; d++) {
+        printf(" ..");
+      }
+      uint64 pa = PTE2PA(pte);
+      printf("%d: pte %p pa %p\n", i, pte, pa);
+      if (depth < 2) {
+        // non-leaf node
+        vmprint_step((pagetable_t) pa, depth+1);
+      }
+    }
+  }
 
-------------------------------
+------------------------------------------
+Part3: Detect which pages have been accessed
+
+How does pgaccess implement?
+  //********************
+  char *buf;
+  unsigned int abits;
+  buf = malloc(32 * PGSIZE);
+  if (pgaccess(buf, 32, &abits) < 0)
+    err("pgaccess failed");
+  buf[PGSIZE * 1] += 1;
+  buf[PGSIZE * 2] += 1;
+  buf[PGSIZE * 30] += 1;
+  if (pgaccess(buf, 32, &abits) < 0)
+    err("pgaccess failed");
+  if (abits != ((1 << 1) | (1 << 2) | (1 << 30)))
+    err("incorrect access bits set");
+  //********************
+
+What do we know?
+  Buffer has 32 pages.
+  For 1,2,30 page, we set 1 as they've been accessed.
+  We call the pageccess(), store the access result in the abits, then compare abits and assumption.
+
+1. Define PTE_A (1L << 6) for the access bit, according to the RISC-V Privileged Architectures.
+2. parse the arguments
+  argaddr(0, &base);  // Starting virtual address of the first user page to check
+  argint(1, &len);    // The number of pages to check
+  argaddr(2, &mask);  // Take a user address to a buffer to store the results into a bitmask
+3. To check the pages in range whether have been accessed or not, 
+   but need to pay attention for unvalid or not user-accessible pages.
+4. function copyout is useful, it's function:
+    // Copy from kernel to user.
+    // Copy len bytes from src to virtual address dstva in a given page table.
+    // Return 0 on success, -1 on error.
+  So we can use
+    copyout(pagetable, bitmask, (char *) &procmask, sizeof(unsigned int))
+  as the return value of this function. 
+
+------------------------------------------

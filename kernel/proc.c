@@ -132,7 +132,7 @@ found:
     return 0;
   }
 
-  // Allocate a trapframe page.
+  // Allocate for 'usyscall'.
   if((p->usyscall = (struct usyscall *)kalloc()) == 0){
     freeproc(p);
     release(&p->lock);
