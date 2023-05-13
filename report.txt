@@ -1,0 +1,37 @@
+Here is my report for <Lab COW>
+Author: Kr.Cen 康瑞 岑
+Date: 2023.5.13
+Some thoughts on the key steps and problems encountered are given below.
+-------------------------------------------------------------------------------------------------------
+    1.
+    The tips in lab mention that we need to count each page of available memory (end to PHYSTOP), 
+    and only if the page has not been mapped by any process can it be freed with kfree.
+    How to do that? 
+    tips also gives suggestions to create an array that will be stored in the kernel code section. 
+    I did this by using the available memory (end~PHYSTOP) and maintaining a section at the beginning of end 
+    to store the array. Once the memory for counting has been opened, kfree and kalloc are modified to 
+    perform the desired logic, which is relatively easy to understand.
+-------------------------------------------------------------------------------------------------------
+    2.
+    The fork function is modified so that it does not copy the address space. 
+    The fork function invokes uvmcopy in vm.c to copy, so all that is required is to 
+    modify the uvmcopy function: remove the kalloc function in uvmcopy, 
+    map the child page table to the physical address of the parent, 
+    remove the write flag, increase the COW flag, and increase the physical memory reference count.
+-------------------------------------------------------------------------------------------------------
+    3.
+    Add page error handling to usertrap (trap.c), which checks if it's a COW. 
+    In this program, the COW bit is determined so that when the page is a COW page, 
+    it can be processed according to the reference count. If the count is greater than 1, 
+    a new page is requested via kalloc, the contents are copied, and the page is mapped
+    by removing the COW flag and setting the PTE_W flag. If the reference count is equal to 1,
+    there is no need to request a new page, but only to modify the flag bit for that page.
+-------------------------------------------------------------------------------------------------------
+    4.
+    The problem I met:
+    A difficult test function 'textwrite' was added to usertests, which puzzled me for a long time. 
+    Then I found that this function was actually a new check for the cow bug
+    After the child process copies the page table of the parent process, 
+    it sets the pte_W of the pte of each page to 0 and pte_C to 1, 
+    and then checks pte_W and pte_C to determine whether the page is a cow page.
+-------------------------------------------------------------------------------------------------------
