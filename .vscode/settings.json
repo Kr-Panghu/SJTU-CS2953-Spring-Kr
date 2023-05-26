@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.txt": "bat",
+        "riscv.h": "c",
+        "locale": "c",
+        "__config": "c"
+    }
+}

@@ -301,6 +301,43 @@ create(char *path, short type, short major, short minor)
   return 0;
 }
 
+static struct inode* follow_symlink(struct inode* ip) {
+  uint inums[NSYMLINK];
+  int i, j;
+  char target[MAXPATH];
+
+  for(i = 0; i < NSYMLINK; ++i) {
+    inums[i] = ip->inum;
+    // read the target path from symlink file
+    if(readi(ip, 0, (uint64)target, 0, MAXPATH) <= 0) {
+      iunlockput(ip);
+      printf("open_symlink: open symlink failed\n");
+      return 0;
+    }
+    iunlockput(ip);
+
+    // get the inode of target path
+    if((ip = namei(target)) == 0) {
+      printf("open_symlink: path \"%s\" is not exist\n", target);
+      return 0;
+    }
+    for(j = 0; j <= i; ++j) {
+      if(ip->inum == inums[j]) {
+        printf("open_symlink: links form a cycle\n");
+        return 0;
+      }
+    }
+    ilock(ip);
+    if(ip->type != T_SYMLINK) {
+      return ip;
+    }
+  }
+
+  iunlockput(ip);
+  printf("open_symlink: the depth of links reaches the limit\n");
+  return 0;
+}
+
 uint64
 sys_open(void)
 {
@@ -339,6 +376,13 @@ sys_open(void)
     iunlockput(ip);
     end_op();
     return -1;
+  }
+
+  if(ip->type == T_SYMLINK && (omode & O_NOFOLLOW) == 0){
+    if((ip = follow_symlink(ip)) == 0) {
+      end_op();
+      return -1;
+    }
   }
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
@@ -501,5 +545,46 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+
+/*
+在 kernel/sysfile.c 中实现 sys_symlink() 函数.
+该函数即用来生成符号链接. 符号链接相当于一个特殊的独立的文件, 其中存储的数据即目标文件的路径.
+因此在该函数中, 首先通过 create() 创建符号链接路径对应的 inode 结构(同时使用 T_SYMLINK 与普通的文件进行区分).
+然后再通过 writei() 将链接的目标文件的路径写入 inode (的 block)中即可. 在这个过程中, 无需判断连接的目标路径是否有效.
+需要注意的是关于文件系统的一些加锁释放的规则. 函数 create() 会返回创建的 inode, 此时也会持有其 inode 的锁. 
+而后续 writei() 是需要在持锁的情况下才能写入. 在结束操作后(不论成功与否), 都需要调用 iunlockput() 来释放 inode 的锁和其本身,
+该函数是 iunlock() 和 iput() 的组合, 前者即释放 inode 的锁; 而后者是减少一个 inode 的引用(对应字段 ref, 
+记录着内存中指向该 inode 的指针数, 这里的 inode 实际上是内存中的 inode, 是从内存的 inode 缓存 icache 分配出来的, 
+当 ref 为 0 时就会回收到 icache 中), 表示当前已经不需要持有该 inode 的指针对其继续操作了.
+symlink(target, path)
+*/
+
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  int n;
+  struct inode *ino;
+  if((n = argstr(0, target, MAXPATH)) < 0 || argstr(1, path, MAXPATH) < 0) 
+    return -1;
+
+  begin_op();
+  ino = create(path, T_SYMLINK, 0, 0);
+  if(ino == 0){
+    end_op();
+    return -1;
+  }
+
+  if(writei(ino, 0, (uint64)target, 0, n) != n) {
+    iunlockput(ino);
+    end_op();
+    return -1;
+  }
+  
+  iunlockput(ino);
+  end_op();
   return 0;
 }

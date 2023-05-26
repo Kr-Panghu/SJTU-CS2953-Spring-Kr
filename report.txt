@@ -1,0 +1,190 @@
+Here is my report for <Lab FS>
+Author: Kr.Cen 康瑞 岑
+------------------------------------------------------------
+Task1: Large files
+Change NDIRECT to 11 (12 => 11) because we need to transfer one block to be doubly-indirect, and the total number of block numbers in the actual inode should not changed.
+Leave NINDIRECT to be the same.
+Add a macro to define NDOUBLYINDIRECT = (NINDIRECT * NINDIRECT) to represent the total number of secondary indirection block numbers.
+Reset the value of MAXFILE
+
+Main_Step1: edit kernel/fs.c bmap() function
+    This function is used to return the block number on disk for the relative block number of the inode.
+
+    Since the first NDIRECT block number in the inode structure is the same as it was before the change, only the secondary indirection index for the NDIRECT, 13th block, 
+    needs to be added. This is handled in a manner similar to that used for the NDIRECT block number, that is, for the first level of indirection, except that it is indexed twice.
+
+    After the single indirect mapping, we add code:
+
+    // doubly-indirect block - lab9-1
+    bn -= NINDIRECT;
+    if(bn < NDOUBLYINDIRECT) {
+        // get the address of doubly-indirect block
+        if((addr = ip->addrs[NDIRECT + 1]) == 0) {
+        addr = balloc(ip->dev);
+        if(addr == 0)
+            return 0;
+        ip->addrs[NDIRECT + 1] = addr;
+        }
+        bp = bread(ip->dev, addr);
+        a = (uint*)bp->data;
+        // get the address of singly-indirect block
+        if((addr = a[bn / NINDIRECT]) == 0) {
+        addr = balloc(ip->dev);
+        if(addr){
+            a[bn / NINDIRECT] = addr;
+            log_write(bp);
+        }
+        }
+        brelse(bp);
+        bp = bread(ip->dev, addr);
+        a = (uint*)bp->data;
+        bn %= NINDIRECT;
+        // get the address of direct block
+        if((addr = a[bn]) == 0) {
+        addr = balloc(ip->dev);
+        if(addr){
+            a[bn] = addr;
+            log_write(bp);
+        }
+        }
+        brelse(bp);
+        return addr;
+    }
+
+Main_Step2: edit kernel/fs.c itrunc() function
+    This function is used to release the data block in inode.
+
+    Since the structure of the secondary indirection block is added, the code for the release of the block for that part needs to be added as well.
+    The way of release is the same as the structure of the first level of indirection block number, only two loops are needed to traverse the second level of indirection block and the first level of indirection block.
+
+    After release the single indirect mapping blocks and the blocks which are singly mapped, we add code below to release doubly indirec blocks and the blocks that are doubly mapped:
+
+    if(ip->addrs[NDIRECT+1]){
+        bp = bread(ip->dev, ip->addrs[NDIRECT+1]);
+        a = (uint*)bp->data;
+        for(j = 0; j < NINDIRECT; j++){
+        if(a[j]){
+            _bp = bread(ip->dev, a[j]);
+            _a = (uint*)_bp -> data;
+            for(k = 0; k < NINDIRECT; k++){
+            if(_a[k])
+                bfree(ip->dev, _a[k]);
+            }
+            brelse(_bp);
+            bfree(ip->dev, a[j]);
+            a[j] = 0;
+        }
+        }
+
+        brelse(bp);
+        bfree(ip->dev, ip->addrs[NDIRECT+1]);
+        ip->addrs[NDIRECT+1] = 0;
+    }
+
+------------------------------------------------------------
+Task2: Symbolic links
+Keys:
+1. The symlink system call to add symbolic links (soft links)
+2. Modify the open system call to deal with symbolic links, and the target file of the symbolic link is still a symbolic link file to recursively find the target file.
+3. Opening a symbolic link with O_NOFOLLOW does not follow the linked file.
+4. The symlink is not tracked by other system calls and the symlink file itself is processed afterwards.
+
+Start by adding the definition declarations for symlink system calls, following the idiomatic way of adding system calls.
+
+Main_Step1: Add a function follow_symlink(struct inode* ip) to recursively follow the symlinks.
+
+    // Caller must hold ip->lock
+    // and when function returned, it holds ip->lock of returned ip
+    static struct inode* follow_symlink(struct inode* ip) {
+    uint inums[NSYMLINK];
+    int i, j;
+    char target[MAXPATH];
+
+    for(i = 0; i < NSYMLINK; ++i) {
+        inums[i] = ip->inum;
+        // read the target path from symlink file
+        if(readi(ip, 0, (uint64)target, 0, MAXPATH) <= 0) {
+        iunlockput(ip);
+        printf("open_symlink: open symlink failed\n");
+        return 0;
+        }
+        iunlockput(ip);
+
+        // get the inode of target path
+        if((ip = namei(target)) == 0) {
+        printf("open_symlink: path \"%s\" is not exist\n", target);
+        return 0;
+        }
+        for(j = 0; j <= i; ++j) {
+        if(ip->inum == inums[j]) {
+            printf("open_symlink: links form a cycle\n");
+            return 0;
+        }
+        }
+        ilock(ip);
+        if(ip->type != T_SYMLINK) {
+        return ip;
+        }
+    }
+
+    iunlockput(ip);
+    printf("open_symlink: the depth of links reaches the limit\n");
+    return 0;
+    }
+
+Main_Step2: edit sys_open() function
+
+    In sys_open(), before creating the file object f=filealloc(), for symbolic links.
+    In the non-no_follow case, the inode of the current file is replaced by the inode of the target file obtained by follow_symlink().
+
+    Add code:
+
+    if(ip->type == T_SYMLINK && (omode & O_NOFOLLOW) == 0){
+        if((ip = follow_symlink(ip)) == 0) {
+        end_op();
+        return -1;
+        }
+    }
+
+Main_Step3: Implement sys_symlink() in kernel/sysfile.c
+
+    This function is used to generate symbolic links. A symbolic link is a special standalone file in which the data is the path to the target file.
+    The inode structure for the symlink path is therefore first created by means of create() (and T_SYMLINK is used to distinguish it from regular files).
+    The path to the linked object file is then written into the inode (block) via writei(). In this process, there is no need to judge whether the connected target path is valid or not.
+    It is important to note that there are some rules regarding the release of locks on the filesystem. The create() function returns the created inode and also holds the lock on it.
+    The subsequent writei() requires a lock to be held in order to write. When the operation is finished, iunlockput() needs to be called to release the lock and the inode itself,
+    The function is a combination of iunlock(), which releases the lock on the inode, and iput(), which releases the lock on the inode; The latter is a reference to the reduced inode.
+
+    uint64
+    sys_symlink(void)
+    {
+    char target[MAXPATH], path[MAXPATH];
+    int n;
+    struct inode *ino;
+    if((n = argstr(0, target, MAXPATH)) < 0 || argstr(1, path, MAXPATH) < 0) 
+        return -1;
+
+    begin_op();
+    ino = create(path, T_SYMLINK, 0, 0);
+    if(ino == 0){
+        end_op();
+        return -1;
+    }
+
+    if(writei(ino, 0, (uint64)target, 0, n) != n) {
+        iunlockput(ino);
+        end_op();
+        return -1;
+    }
+    
+    iunlockput(ino);
+    end_op();
+    return 0;
+    }
+
+------------------------------------------------------------
+Some insights:
+
+After completing this lab, I have a definite understanding of how to increase the file system capacity and implement symbolic links.
+
+In fact, we can implement **triple-indirect mapping**, which is exactly the same thing.
