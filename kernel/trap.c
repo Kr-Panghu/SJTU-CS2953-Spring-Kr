@@ -65,6 +65,36 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 13) {
+  /*
+  当发生trap时,如果mcause的值为0xd时,
+  就是缺页中断,此时的mtval中的值就是缺页的地址
+  */
+    uint64 addr = r_stval();
+    struct VMA* vp = 0;
+    for(int i = 0; i < VMA_MAX; i++){
+      if(p -> vma[i].addr <= addr && addr < p -> vma[i].addr + p -> vma[i].len && p -> vma[i].valid){
+        vp = &p -> vma[i];
+        break;
+      }
+    }
+    if(vp != 0){
+      uint64 mem = (uint64)kalloc();
+      memset((void*)mem, 0, PGSIZE);
+
+      if(-1 == mappages(p -> pagetable, addr, PGSIZE, mem, PTE_U | PTE_V | ( vp->prot << 1 ))){
+        panic("PAGEFAULT_MAP_ERROR");
+      }
+
+      vp -> mapcnt += PGSIZE;
+      ilock(vp -> f -> ip);
+      readi(vp -> f -> ip, 0, mem, addr - vp->addr, PGSIZE);
+      iunlock(vp -> f -> ip);
+    } else {
+        printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+        printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+        setkilled(p);
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

@@ -1,3 +1,4 @@
+#include "file.h"
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -81,6 +82,18 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+// Virtual memory address
+struct VMA{
+  int valid;        // Valid bit
+  uint64 addr;      // Start address
+  int len;          // length
+  int prot;   // authority(read/write)
+  int flags;        // shared/private
+  int off;          // offset
+  struct file *f;   // file mapped
+  uint64 mapcnt;    // pages already mapped (lazy allocation)
+};
+#define VMA_MAX 16
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -104,4 +117,11 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct VMA vma[VMA_MAX];     // Virtual memory address field array
+  /*
+  Growing down from the bottom of the trapframe, 
+  we need to maintain a new variable in struct proc to record
+  the maximum address of the available portion of the heap area.
+  */
+  uint64 maxaddr;              // Vitural memory to be assigned to VMA
 };
