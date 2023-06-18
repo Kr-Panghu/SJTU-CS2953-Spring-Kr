@@ -535,11 +535,20 @@ uint64 sys_mmap(void){
   vp->off = off;
   vp->prot = prot;
   vp->f = f;
-  filedup(f);  //increase the ref of the file
+  filedup(f);  // increase the ref of the file
   
-  vp->addr = (p->maxaddr-=len);  // asign a useable virtual address to the vma field , and maintain the maxaddr
+  vp->addr = (p->maxaddr-=len);  // assign a useable virtual address to the vma field , and maintain the maxaddr
   return vp->addr;
 }
+
+int mmap_read(struct file *f, uint64 va, int off, int size) {
+  ilock(f->ip);
+  // read to user space VA.
+  int n = readi(f->ip, 1, va, off, size);
+  off+=n;
+  iunlock(f->ip);
+  return off;
+} 
 
 uint64 sys_munmap(void){
   uint64 addr;

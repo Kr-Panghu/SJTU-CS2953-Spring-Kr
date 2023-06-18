@@ -142,6 +142,9 @@ int             fetchstr(uint64, char*, int);
 int             fetchaddr(uint64, uint64*);
 void            syscall();
 
+// sysfile.c
+int mmap_read(struct file *f, uint64 va, int off, int size);
+
 // trap.c
 extern uint     ticks;
 void            trapinit(void);

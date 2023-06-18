@@ -1,0 +1,192 @@
+Here is my report for <Lab mmap>
+Author: Kr.Cen 康瑞 岑
+------------------------------------------------------------
+Task: The mmap and munmap system calls allow UNIX programs to exert detailed control over their address
+spaces. They can be used to share memory among processes, to map files into process address spaces, and
+as part of user-level page fault schemes such as the garbage-collection algorithms. In this lab you'll add
+mmap and munmap to xv6, focusing on memory-mapped files.
+
+Step1: Add system calls
+Add mmap and munmap system calls and associated flags in the system.
+
+Step2: Define VMA Per process
+Define VMA to keep track what mmap has mapped for each process.
+struct VMA{
+  int valid;        // Valid bit
+  uint64 addr;      // Start address
+  int len;          // length
+  int prot;   // authority(read/write)
+  int flags;        // shared/private
+  int off;          // offset
+  struct file *f;   // file mapped
+  uint64 mapcnt;    // pages already mapped (lazy allocation)
+};
+
+Each process has a VMA fixed-size-array
+struct proc {
+
+  ......
+
+  struct VMA vma[VMA_MAX];     // Virtual memory address field array
+  /*
+  Growing down from the bottom of the trapframe, 
+  we need to maintain a new variable in struct proc to record
+  the maximum address of the available portion of the heap area.
+  */
+  uint64 maxaddr;              // Vitural memory to be assigned to VMA
+};
+
+Step3: mmap
+How to determine VMA start address and end address(length)
+
+I design the initial max virtual address of VMA is MAXVA - 2 * PGSIZE, 
+which is 2 pages below the max. The reason behind is first 2 pages are trampoline and trap frame. 
+The VMA list is allocated from top to bottom. The current max VA is adjusted after we create a new VMA. 
+So next allocation's end address can be set to current max. 
+
+uint64 sys_mmap(void){
+  uint64 addr;
+  int len , prot , flags , fd , off;
+  argaddr(0 , &addr);
+  argint(1 , &len);
+  argint(2 , &prot);
+  argint(3 , &flags);
+  argint(4 , &fd);
+  argint(5 , &off);
+
+  struct proc* p = myproc();
+  struct file* f = p->ofile[fd];
+   
+  if((flags == MAP_SHARED && f->writable == 0 && (prot&PROT_WRITE)))
+    return -1;
+  
+  // find an empty VMA
+  int idx;
+  for(idx = 0 ; idx < VMA_MAX ; idx++)
+    if(p->vma[idx].valid == 0)
+      break;
+  if(idx == VMA_MAX)
+    panic("NO_EMPTY_VMA");
+   
+  struct VMA* vp = &p->vma[idx];
+  vp->valid = 1;
+  vp->len = len;
+  vp->flags = flags;
+  vp->off = off;
+  vp->prot = prot;
+  vp->f = f;
+  filedup(f);  // increase the ref of the file
+  
+  vp->addr = (p->maxaddr-=len);  // assign a useable virtual address to the vma field , and maintain the maxaddr
+  return vp->addr;
+}
+
+Step4: Modify usertrap
+else if(r_scause() == 13 || r_scause() == 15) {
+  /*
+  当发生trap时,如果mcause的值为0xd时,
+  就是缺页中断,此时的mtval中的值就是缺页的地址
+  */
+    uint64 addr = r_stval();
+    struct VMA* vp = 0;
+    for(int i = 0; i < VMA_MAX; i++){
+      if(p -> vma[i].addr <= addr && addr < p -> vma[i].addr + p -> vma[i].len && p -> vma[i].valid){
+        vp = &p -> vma[i];
+        break;
+      }
+    }
+    if(vp != 0){
+      uint64 mem = (uint64)kalloc();
+      memset((void*)mem, 0, PGSIZE);
+
+      if(-1 == mappages(p -> pagetable, addr, PGSIZE, mem, PTE_U | PTE_V | ( vp->prot << 1 ))){
+        panic("PAGEFAULT_MAP_ERROR");
+      }
+
+      // vp -> mapcnt += PGSIZE;
+      // ilock(vp -> f -> ip);
+      // readi(vp -> f -> ip, 0, mem, addr - vp->addr, PGSIZE);
+      // iunlock(vp -> f -> ip);
+      int distance = addr - vp->addr;
+      mmap_read(vp->f, addr, distance, PGSIZE);
+    } else {
+        printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+        printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+        setkilled(p);
+    }
+  }
+
+此处mmap_read函数的含义与注释掉的代码含义相同
+
+Step5: munmap
+
+uint64 sys_munmap(void){
+  uint64 addr;
+  int len;
+  argaddr(0 , &addr);
+  argint(1, &len);
+  struct proc* p = myproc();
+  struct VMA* vp = 0;
+  for(int i = 0; i < VMA_MAX; i++){
+    if(p -> vma[i].addr <= addr && addr < p->vma[i].addr + p->vma[i].len && p->vma[i].valid == 1){
+      vp = &p -> vma[i];
+      break;
+    }
+  }
+  if(vp == 0) panic("munmap");
+  if(walkaddr(p -> pagetable, addr) != 0){
+    if(vp -> flags == MAP_SHARED){
+      filewriteoff(vp -> f, addr, len, addr - vp->addr);
+    }
+    uvmunmap(p -> pagetable, addr, len/PGSIZE, 1);
+    return 0;
+  }
+  if((vp -> mapcnt -= len) == 0){
+    fileclose(vp -> f);
+    vp -> valid = 0;
+  }
+  return 0;
+}
+
+filewriteoff is an edited version of filewrite (with offset)
+
+Step6: Modify <fork> and <exit> function
+int fork(void)
+{
+//...
+  np->maxaddr = p->maxaddr;
+  for( int i=0 ; i<VMA_MAX ; i++ )
+    if( p->vma[i].valid )
+    {
+      filedup( p->vma[i].f );
+      memmove( &np->vma[i] , &p->vma[i] , sizeof( struct VMA ));
+    }
+  return pid;
+}
+void exit(int status)
+{
+  struct proc *p = myproc();
+
+  for( int i=0 ; i<VMA_MAX ; i++ )
+  {
+    if( p->vma[i].valid == 1 )
+    {
+      struct VMA* vp = &p->vma[i];
+      for( uint64 addr = vp->addr ; addr < vp->addr + vp->len ; addr += PGSIZE )
+      {
+        if( walkaddr( p->pagetable , addr ) != 0 )
+        {
+          if( vp->flags == MAP_SHARED )
+            filewriteoff( vp->f , addr , PGSIZE , addr-vp->addr );
+          uvmunmap( p->pagetable , addr , 1 , 1 );
+        }
+      }
+      fileclose( p->vma[i].f );
+      p->vma[i].valid = 0;
+    }
+  }
+  ......
+}
+
+Then the job is finished.
+------------------------------------------------------------

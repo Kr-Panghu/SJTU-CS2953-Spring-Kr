@@ -65,7 +65,7 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if(r_scause() == 13) {
+  } else if(r_scause() == 13 || r_scause() == 15) {
   /*
   当发生trap时,如果mcause的值为0xd时,
   就是缺页中断,此时的mtval中的值就是缺页的地址
@@ -86,10 +86,12 @@ usertrap(void)
         panic("PAGEFAULT_MAP_ERROR");
       }
 
-      vp -> mapcnt += PGSIZE;
-      ilock(vp -> f -> ip);
-      readi(vp -> f -> ip, 0, mem, addr - vp->addr, PGSIZE);
-      iunlock(vp -> f -> ip);
+      // vp -> mapcnt += PGSIZE;
+      // ilock(vp -> f -> ip);
+      // readi(vp -> f -> ip, 0, mem, addr - vp->addr, PGSIZE);
+      // iunlock(vp -> f -> ip);
+      int distance = addr - vp->addr;
+      mmap_read(vp->f, addr, distance, PGSIZE);
     } else {
         printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
         printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
